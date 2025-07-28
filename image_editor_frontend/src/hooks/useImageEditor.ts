@@ -10,7 +10,7 @@ export default function useImageEditor() {
   // Canvas DOM ref
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // State: main image, tempImage (for operations-in-progress)
+  // State: main image
   const [image, setImage] = useState<string | null>(null);
 
   // Filters and adjustments (simple object)
@@ -81,12 +81,9 @@ export default function useImageEditor() {
     }
   }
 
-  // --- TOOL LOGIC: crop/resize/rotate/filter/adjustment ---
-  // Here, actual implementations for each edit tool:
-  // for brevity, only rudimentary placeholder logic for demo
-
-  // (In a real app you'd expand these to show dialogs/UI for crop/resize, etc)
-  // Here: instantly apply simple demo effect
+  // --- TOOL LOGIC: crop/resize/rotate ---
+  // Only crop/resize/rotate are "destructive" operations 
+  // (i.e., update the underlying image state and trigger a new undo/redo snapshot)
 
   // PUBLIC_INTERFACE
   function setCrop() {}
@@ -100,14 +97,15 @@ export default function useImageEditor() {
 
   // PUBLIC_INTERFACE
   function applyCrop() {
-    // Basic implementation: hardcoded crop example
+    // Crops 70% of the left-top of the image for demo
     if (!canvasRef.current || !image) return;
     const ctx = canvasRef.current.getContext("2d");
     const img = new window.Image();
     img.onload = () => {
-      const crop = { x: 0, y: 0, w: img.width * 0.7, h: img.height * 0.7 };
+      const crop = { x: 0, y: 0, w: Math.round(img.width * 0.7), h: Math.round(img.height * 0.7) };
       canvasRef.current!.width = crop.w;
       canvasRef.current!.height = crop.h;
+      ctx?.clearRect(0, 0, crop.w, crop.h);
       ctx?.drawImage(img, crop.x, crop.y, crop.w, crop.h, 0, 0, crop.w, crop.h);
       const url = canvasRef.current!.toDataURL();
       setImage(url);
@@ -129,6 +127,7 @@ export default function useImageEditor() {
       const h = Math.round(img.height * 0.8);
       canvasRef.current!.width = w;
       canvasRef.current!.height = h;
+      ctx?.clearRect(0, 0, w, h);
       ctx?.drawImage(img, 0, 0, w, h);
       const url = canvasRef.current!.toDataURL();
       setImage(url);
@@ -145,11 +144,15 @@ export default function useImageEditor() {
     const ctx = canvasRef.current.getContext("2d");
     const img = new window.Image();
     img.onload = () => {
+      // Rotate 90deg clockwise (width/height swapped)
       canvasRef.current!.width = img.height;
       canvasRef.current!.height = img.width;
+      ctx?.clearRect(0, 0, img.height, img.width);
       ctx?.translate(img.height / 2, img.width / 2);
       ctx?.rotate((90 * Math.PI) / 180);
       ctx?.drawImage(img, -img.width / 2, -img.height / 2);
+      // Reset transform so next draw is clean
+      ctx?.setTransform(1, 0, 0, 1, 0, 0);
       const url = canvasRef.current!.toDataURL();
       setImage(url);
       setHistory((h) => [...h, url]);
@@ -161,32 +164,13 @@ export default function useImageEditor() {
 
   // PUBLIC_INTERFACE
   function applyFilter(type: string) {
-    // (for demo: only grayscale/sepia)
+    // Toggle filter state, but do NOT mutate current image snapshot
     setFilters((f) => ({
       ...f,
       [type]: !f[type as "grayscale" | "sepia"],
     }));
-    if (!canvasRef.current || !image) return;
-    const ctx = canvasRef.current.getContext("2d");
-    const img = new window.Image();
-    img.onload = () => {
-      canvasRef.current!.width = img.width;
-      canvasRef.current!.height = img.height;
-      ctx?.drawImage(img, 0, 0);
-      // Canvas filter
-      ctx!.filter =
-        (type === "grayscale" && "grayscale(1)") ||
-        (type === "sepia" && "sepia(1)") ||
-        "none";
-      ctx?.drawImage(img, 0, 0);
-      const url = canvasRef.current!.toDataURL();
-      setImage(url);
-      setHistory((h) => [...h, url]);
-      setRedoStack([]);
-      setIsDirty(true);
-      ctx!.filter = "none";
-    };
-    img.src = image;
+    setIsDirty(true);
+    // No need to destructively update image/history here; CanvasArea will handle visual update
   }
 
   // PUBLIC_INTERFACE
@@ -194,38 +178,20 @@ export default function useImageEditor() {
     type: "brightness" | "contrast",
     delta: number
   ) {
+    // Clamp values
     setAdjustment((adj) => ({
       ...adj,
       [type]: Math.max(0.1, Math.min((adj[type] || 1) + delta, 2.5)),
     }));
-
-    if (!canvasRef.current || !image) return;
-    const ctx = canvasRef.current.getContext("2d");
-    const img = new window.Image();
-    img.onload = () => {
-      canvasRef.current!.width = img.width;
-      canvasRef.current!.height = img.height;
-      let brightness = type === "brightness" ? adjustment.brightness + delta : adjustment.brightness;
-      let contrast = type === "contrast" ? adjustment.contrast + delta : adjustment.contrast;
-      brightness = Math.max(0.1, Math.min(brightness, 2.5));
-      contrast = Math.max(0.1, Math.min(contrast, 2.5));
-      ctx!.filter = `brightness(${brightness}) contrast(${contrast})`;
-      ctx?.drawImage(img, 0, 0);
-      const url = canvasRef.current!.toDataURL();
-      setImage(url);
-      setHistory((h) => [...h, url]);
-      setRedoStack([]);
-      setIsDirty(true);
-      ctx!.filter = "none";
-    };
-    img.src = image;
+    setIsDirty(true);
+    // No destructive image change here; CanvasArea handles temporary effect visually
   }
 
   // Expose state & functions
   return {
     canvasRef,
     image,
-    tempImage: null,
+    tempImage: null, // (reserved for future, e.g. for previews)
     filters,
     adjustment,
     history,

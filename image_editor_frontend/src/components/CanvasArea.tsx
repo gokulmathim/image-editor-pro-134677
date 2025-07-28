@@ -1,5 +1,14 @@
 import React, { forwardRef, useEffect, useRef } from "react";
 
+/**
+ * PUBLIC_INTERFACE
+ * CanvasArea - Renders the image on a canvas with filters and adjustment applied.
+ *
+ * Props:
+ * - image: string | null (the base64 or url of image)
+ * - filters: { grayscale?: boolean; sepia?: boolean }
+ * - adjustment: { brightness: number; contrast: number }
+ */
 interface CanvasAreaProps {
   image: string | null;
   filters: { grayscale?: boolean; sepia?: boolean };
@@ -11,24 +20,38 @@ const CanvasArea = forwardRef<HTMLCanvasElement, CanvasAreaProps>(
     const localCanvas = useRef<HTMLCanvasElement>(null);
 
     useEffect(() => {
-      // The ref will be used by editor logic for direct manipulation.
-      // Also rerender image when props change.
-      const canvas = (ref as React.MutableRefObject<HTMLCanvasElement | null>)
-        ?.current
-        ? (ref as React.MutableRefObject<HTMLCanvasElement | null>).current
+      // Choose which canvas ref to use (external if provided, otherwise own)
+      const canvas = (ref && typeof ref !== "function" && "current" in ref && ref.current)
+        ? ref.current
         : localCanvas.current;
       if (!canvas || !image) return;
       const ctx = canvas.getContext("2d");
-      const img = typeof image === "string" ? new window.Image() : image;
-      if (typeof image === "string") {
-        img.src = image;
-      }
+      if (!ctx) return;
+      const img = new window.Image();
+      img.src = image;
       img.onload = () => {
+        // Adjust canvas size to image
         canvas.width = img.width;
         canvas.height = img.height;
-        ctx?.drawImage(img, 0, 0);
-        // Filters handled in useImageEditor via canvas manipulation!
+
+        // Build up filter string
+        const filterParts = [];
+        if (filters?.grayscale) filterParts.push("grayscale(1)");
+        if (filters?.sepia) filterParts.push("sepia(1)");
+        filterParts.push(`brightness(${adjustment.brightness ?? 1})`);
+        filterParts.push(`contrast(${adjustment.contrast ?? 1})`);
+        ctx.filter = filterParts.join(" ");
+
+        // Draw with filters
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+
+        ctx.filter = "none";
       };
+      // If image changes rapidly, ensure it's cleared (to avoid flicker)
+      if (!image) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
     }, [image, filters, adjustment, ref]);
 
     return (
